@@ -1,0 +1,50 @@
+Normal Commands
+===============
+ls
+ps
+df
+hostname
+
+Commands with 1 options
+=======================
+ls -a
+ps -al
+mkdir *
+rmdir *
+touch *.txt
+nano *.txt //Something wrong
+hostname -I
+ping www.*.com
+
+Commands with multiple options
+==============================
+gcc main.c -o main.out
+mv *.txt *.txt
+
+Redirection
+===========
+echo hello
+echo hello > new.txt
+sort < words.txt
+sort -r < words.txt
+
+History
+=======
+!!
+
+Pipes: //clunky fix
+======
+ls -l | less
+ps- al | more
+cat "filename" | less
+cat "filename" | grep "word"
+
+Corner Cases
+===========
+*Empty command*
+Insert tabs and spaces inside command
+Wrong Command
+Wrong parameters
+Redirect from empty file
+Redirect to nonexisting file
+Read from empty file
