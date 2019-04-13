@@ -7,14 +7,12 @@
 #include <errno.h>
 #include <stdbool.h>
 
-
 #define MAX_LINE 80         /* 80 chars per line, per command */
 #define NORMAL_MODE 998
 #define REDIRECT_INPUT O_RDONLY
-#define REDIRECT_OUTPUT O_WRONLY | O_CREAT | O_TRUNC
-#define EXECUTION_MODE S_IRUSR | S_IWUSR
+#define REDIRECT_OUTPUT (O_WRONLY | O_CREAT | O_TRUNC)
+#define EXECUTION_MODE (S_IRUSR | S_IWUSR)
 #define PIPED_COMMAND 999
-#define PIPED_COMMAND_CHILD 1000
 #define READ_END    0
 #define WRITE_END    1
 
@@ -28,7 +26,9 @@ mode_t selectMode(char **args);
 
 void processArgs(char **args, char **history);
 
-void executeArgs(char **args, mode_t mode, int fd[2]);
+void pipeCommand(char **args);
+
+void executeArgs(char **args, mode_t mode);
 
 void redirectData(char **args, int oFlags, mode_t mode, int stream);
 
@@ -51,15 +51,13 @@ int main(void) {
         if (!countArgs(args)) {
             printf("No command was entered.\n");
         } else {
-            printf("Arguments:\n");
-            printArgs(args);
             processArgs(args, history);
         }
     }
 }
 
 void init() {
-    printf("======================= CLI =======================\n");
+    printf("======================= SHELL =======================\n");
 }
 
 void inputArgs(char *buffer) {
@@ -121,13 +119,53 @@ void processArgs(char **args, char **history) {
         printf("No command was entered.\n");
     }
     history_push(args, history);
-    int fd[2];
-    executeArgs(args, mode, fd);
+    executeArgs(args, mode);
 }
 
-void executeArgs(char **args, mode_t mode, int fd[2]) {
-    pid_t pid = fork();
+void pipeCommand(char **args) {
+    int fd[2];
     int i = 0;
+    for (i = 0; strcmp(args[i], "|") != 0; i++);
+    if (pipe(fd) < 0) {
+        fprintf(stderr, "Failed to open a pipe: %s\n", strerror(errno));
+        exit(1);
+    }
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        fprintf(stderr, "Failed to fork a process: %s\n", strerror(errno));
+        return;
+    } else if (pid == 0) { /* Child Process */
+        truncateParameters(args, i);
+        if (close(fd[READ_END]) < 0) {
+            fprintf(stderr, "Failed to close a file: %s\n", strerror(errno));
+            exit(1);
+        }
+        dup2(fd[WRITE_END], STDOUT_FILENO);
+
+        if (execvp(args[0], (char **) args) < 0)
+            fprintf(stderr, "Could not execute command.\n");
+        return;
+    } else { /* Parent Process */
+        int status;
+        waitpid(pid, &status, 0);
+        args = &args[i + 1];
+        if (close(fd[WRITE_END]) < 0) {
+            fprintf(stderr, "Failed to close a file: %s\n", strerror(errno));
+            exit(1);
+        }
+        dup2(fd[READ_END], STDIN_FILENO);
+        if (execvp(args[0], args) < 0)
+            fprintf(stderr, "Could not execute command.\n");
+        if (close(fd[READ_END]) < 0) {
+            fprintf(stderr, "Failed to close a file: %s\n", strerror(errno));
+            exit(1);
+        }
+    }
+}
+
+void executeArgs(char **args, mode_t mode) {
+    pid_t pid = fork();
     if (pid < 0) {
         fprintf(stderr, "Failed to fork a process: %s\n", strerror(errno));
         return;
@@ -140,49 +178,20 @@ void executeArgs(char **args, mode_t mode, int fd[2]) {
                 redirectData(args, REDIRECT_OUTPUT, EXECUTION_MODE, STDOUT_FILENO);
                 break;
             case PIPED_COMMAND:
-                for (i = 0; strcmp(args[i], "|") != 0; i++);
-                if (pipe(fd) < 0) {
-                    fprintf(stderr, "Failed to open a pipe: %s\n", strerror(errno));
-                    exit(1);
-                }
-                executeArgs(&args[i + 1], PIPED_COMMAND_CHILD, fd);
-                truncateParameters(args, i);
-                if (close(fd[READ_END]) < 0) {
-                    fprintf(stderr, "Failed to close a file: %s\n", strerror(errno));
-                    exit(1);
-                }
-                dup2(fd[WRITE_END], STDOUT_FILENO);
-                if (execvp(args[0], args) < 0)
-                    fprintf(stderr, "Could not execute command.\n");
-                if (close(fd[WRITE_END]) < 0) {
-                    fprintf(stderr, "Failed to close a file: %s\n", strerror(errno));
-                    exit(1);
-                }
+                pipeCommand(args);
                 break;
-            case PIPED_COMMAND_CHILD:
-                if (close(fd[WRITE_END]) < 0) {
-                    fprintf(stderr, "Failed to close a file: %s\n", strerror(errno));
-                    exit(1);
-                }
-                dup2(fd[READ_END], STDIN_FILENO);
-                if (execvp(args[0], args) < 0)
-                    fprintf(stderr, "Could not execute command.\n");
-                if (close(fd[READ_END]) < 0) {
-                    fprintf(stderr, "Failed to close a file: %s\n", strerror(errno));
-                    exit(1);
-                }
             default:
                 if (execvp(args[0], args) < 0)
                     fprintf(stderr, "Could not execute command.\n");
         }
-        exit(0);
     } else { /* Parent Process */
         bool waitForChild = true;
         for (int j = 0; args[j] != NULL; j++)
             if (strcmp(args[j], "&") == 0)
                 waitForChild = false;
-        if (waitForChild && mode != PIPED_COMMAND_CHILD) {
-            wait(NULL);
+        if (waitForChild) {
+            int status;
+            waitpid(pid, &status, 0);
         }
         return;
     }
@@ -222,7 +231,7 @@ void history_push(char **args, char **history) {
     for (int i = 0; args[i] != NULL; i++) {
         if (history[i] != args[i]) {
             history[i] = (char *) malloc(strlen(args[i]) + 1);
-            strcpy(history[i], args[i]);
+            strcpy(history[i], aregs[i]);
             history[i + 1] = NULL;
         }
     }
