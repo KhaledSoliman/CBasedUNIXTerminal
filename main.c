@@ -165,6 +165,14 @@ void pipeCommand(char **args) {
 }
 
 void executeArgs(char **args, mode_t mode) {
+    bool waitForChild = true;
+    if (strcmp(args[countArgs(args) - 1], "&") == 0) {
+        waitForChild = false;
+        args[countArgs(args) - 1] = NULL;
+    } else if (args[countArgs(args) - 1][strlen(args[countArgs(args) - 1]) - 1] == '&') {
+        args[countArgs(args) - 1][strlen(args[countArgs(args) - 1]) - 1] = 0;
+        waitForChild = false;
+    }
     pid_t pid = fork();
     if (pid < 0) {
         fprintf(stderr, "Failed to fork a process: %s\n", strerror(errno));
@@ -185,10 +193,6 @@ void executeArgs(char **args, mode_t mode) {
                     fprintf(stderr, "Could not execute command.\n");
         }
     } else { /* Parent Process */
-        bool waitForChild = true;
-        for (int j = 0; args[j] != NULL; j++)
-            if (strcmp(args[j], "&") == 0)
-                waitForChild = false;
         if (waitForChild) {
             int status;
             waitpid(pid, &status, 0);
@@ -231,7 +235,7 @@ void history_push(char **args, char **history) {
     for (int i = 0; args[i] != NULL; i++) {
         if (history[i] != args[i]) {
             history[i] = (char *) malloc(strlen(args[i]) + 1);
-            strcpy(history[i], aregs[i]);
+            strcpy(history[i], args[i]);
             history[i + 1] = NULL;
         }
     }
